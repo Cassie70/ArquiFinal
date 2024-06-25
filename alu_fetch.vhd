@@ -8,11 +8,8 @@ use machxo2.all;
 ----------------------------------------------------------
 entity alu_fetch is port(
 	reset: in std_logic;
-	stop_run: in std_logic;
-	SW: in std_logic_vector(1 downto 0);
-	display: out std_logic_vector(6 downto 0);
-	signo: out std_logic;
-	sel: out std_logic_vector(3 downto 0)
+	filas: out std_logic_vector(7 downto 0);
+	columnas: out std_logic_vector(23 downto 0)
 );
 end alu_fetch;
 
@@ -29,35 +26,26 @@ architecture behavior of alu_fetch is
 	component ROM is port(
 		clk: in std_logic;
 		clr: in std_logic;
-		enable: in std_logic;
-		read_m : in std_logic; 
+		address: in std_logic_vector(7 downto 0);
+		data_out : out std_logic_vector(23 downto 0)
+	);
+	end component;
+	
+	component ROM_RGB is port(
+		clk: in std_logic;
+		clr: in std_logic;
 		address: in std_logic_vector(7 downto 0);
 		data_out : out std_logic_vector(23 downto 0)
 	);
 	end component;
 		
-	component registrosPG is Port ( 
-		clk        : in  STD_LOGIC;
-		reset      : in  STD_LOGIC;
-		enable     : in  STD_LOGIC;
-		data_in    : in  STD_LOGIC_VECTOR (23 downto 0);
-		selector1  : in  STD_LOGIC_VECTOR (1 downto 0); 
-		data_out1  : out STD_LOGIC_VECTOR (23 downto 0));
-	end component;
-
-	
-	component bcdDisplay is port(
-		CLK,CLR: IN STD_LOGIC;
-		E: IN STD_LOGIC_VECTOR(3 DOWNTO 0);
-		DISPLAY:INOUT STD_LOGIC_VECTOR(6 DOWNTO 0)	
-		);
-	end component;
-
-	component Bin2BCD is port(
-		clr: in std_logic;
-        bin_in : IN STD_LOGIC_VECTOR(13 DOWNTO 0);
-        bcd_out   : OUT STD_LOGIC_VECTOR(15 DOWNTO 0)
-    );
+	component registrosPG is
+		Port ( clk        : in  STD_LOGIC;
+			   reset      : in  STD_LOGIC;
+			   enable     : in  STD_LOGIC;
+			   data_in    : in  STD_LOGIC_VECTOR (23 downto 0);
+			   selector1  : in  STD_LOGIC_VECTOR (1 downto 0); 
+			   data_out1  : out STD_LOGIC_VECTOR (23 downto 0)); 
 	end component;
 	
 	component alu is port(
@@ -69,38 +57,45 @@ architecture behavior of alu_fetch is
 		C,Z,S,V,end_div: out std_logic);
 	end component;
 	
+	component matrizRGB is port(
+		clk: in std_logic;
+		filas : out std_logic_vector(7 downto 0);
+		rgb: out std_logic_vector(23 downto 0);
+		f1,f2,f3,f4,f5,f6,f7,f8: in std_logic_vector(23 downto 0)
+	);
+	end component;
+	
 signal clk: std_logic;
 signal clk_0: std_logic:='0';
-signal clk_1: std_logic:='0';
-signal Q: std_logic_vector(13 downto 0);
-signal Qbcd: std_logic_vector(15 downto 0);
-signal temp_control: std_logic_vector(3 downto 0);
-signal un,de,ce,mi: std_logic_vector(6 downto 0);
-signal Rdisplay: std_logic_vector(13 downto 0);
+
 --REGISTROS PARA DATAPATH--
 signal PC: std_logic_vector(7 downto 0):=(others=>'0');
-signal PC_mux : std_logic_vector(7 downto 0):=(others=>'0');
 signal MAR: std_logic_vector(7 downto 0):=(others=>'0');
 signal MBR: std_logic_vector(23 downto 0):=(others=>'0');
 signal IR: std_logic_vector(23 downto 0):=(others=>'0');
-signal ACC: std_logic_vector(15 downto 0):=(others=>'0');
+signal ACC: std_logic_vector(15 downto 0);
 
 --entradas,salidas componentes
+--RPG
 signal data_bus: std_logic_vector(23 downto 0);
 signal rpg_in: std_logic_vector(23 downto 0):=(others=>'0');
 signal rpg_out1: std_logic_vector(23 downto 0);
 signal rpg_sel1: std_logic_vector(1 downto 0):=(others=>'0');
---signal rpg_out2: std_logic_vector(23 downto 0);
---signal rpg_sel2: std_logic_vector(1 downto 0):=(others=>'0');
 signal rpg_write: std_logic:='0';
+
 signal A,B: std_logic_vector(15 downto 0);
 signal control: std_logic_vector(3 downto 0);
 signal C,Z,S,V,end_div: std_logic;
 signal reset_div: std_logic:='0';
+--entradas MATRIZ rgb
+signal f1,f2,f3,f4,f5,f6,f7,f8: std_logic_vector(23 downto 0):=(others=>'1');
+signal sel_rgb: std_logic_vector(7 downto 0):=(others=>'0');
+signal data_bus_rgb: std_logic_vector(23 downto 0);
+signal sel_rgb_temp:std_logic_vector(2 downto 0):="000";
 type global_state_type is (reset_pc,fetch,fetch1,fetch2,fetch3,end_fetch,decode,end_decode, execute,end_execute); 
 signal global_state: global_state_type;
 
-type instruction_type is (i_nop,i_load,i_addi,i_dply,i_adec,i_bnz,i_bz,i_bs,i_bns,i_null,i_bnc,i_bc,i_bnv,i_bv,
+type instruction_type is (i_nop,i_load,i_rgb,i_addi,i_adec,i_bnz,i_bz,i_bs,i_bns,i_null,i_bnc,i_bc,i_bnv,i_bv,
 i_halt,i_add,i_sub,i_mult,i_div,i_multi,i_divi,i_comp1,i_comp2,i_jmp,i_loadi,i_cmp,i_cmpi,i_jr,i_ja);
 
 signal instruction: instruction_type;
@@ -113,27 +108,24 @@ begin
 -----------IMPLEMENTACION OSCILADOR INTERNO---------------
 OSCinst0: OSCH generic map("3.02") port map('0', clk);
 ----------------------------------------------------------
-imp_binBCD: bin2bcd port map(reset,Q,Qbcd);
---clk_0
-unidades: bcdDisplay port map(clk_0,reset,Qbcd(3 downto 0),un);
-decenas: bcdDisplay port map(clk_0,reset,Qbcd(7 downto 4),de);
-centenas: bcdDisplay port map(clk_0,reset,Qbcd(11 downto 8),ce);
-millar: bcdDisplay port map(clk_0,reset,Qbcd(15 downto 12),mi);
---clk_1
-ROM_imp: ROM port map(clk_1,reset,'1','1',MAR,data_bus);
-RPG : registrosPG port map(clk_1,reset,rpg_write,rpg_in,rpg_sel1,rpg_out1);
-ALU_imp : alu port map(clk_1,reset_div,A,B,control,ACC(15 downto 0),C,Z,S,V,end_div);
 
-process(clk_1, reset, stop_run)
+--clk
+ROM_imp: ROM port map(clk,reset,MAR,data_bus);
+ROM_RGB_imp: ROM_RGB port map(clk,reset,sel_rgb,data_bus_rgb);
+RPG : registrosPG port map(clk,reset,rpg_write,rpg_in,rpg_sel1,rpg_out1);
+ALU_imp : alu port map(clk,reset_div,A,B,control,ACC(15 downto 0),C,Z,S,V,end_div);
+--clk_0
+matrizRGB_imp: matrizRGB port map(clk_0,filas,columnas,f1,f2,f3,f4,f5,f6,f7,f8);
+
+process(clk, reset)
 	begin
 		if (reset = '1') then
-			PC<= PC_mux;
 			global_state <= reset_pc;
 			execute_instruction<=t0;
 			MAR<=(others=>'0');
 			MBR<=(others=>'0');
-			IR<=(others=>'0');				
-		elsif (rising_edge(clk_1) and stop_run='0') then			
+			IR<=(others=>'0');		
+		elsif (rising_edge(clk)) then			
 			case global_state is
 				when reset_pc=>
 					global_state<=fetch;
@@ -156,7 +148,7 @@ process(clk_1, reset, stop_run)
 						when "000000" =>instruction <= i_nop;
 						when "000001" =>instruction <= i_load;
 						when "000010" =>instruction <= i_addi;
-						when "000011" =>instruction <= i_dply;
+						when "000011" =>instruction <= i_rgb;
 						when "000100" =>instruction <= i_adec;
 						when "000101" =>instruction <= i_bnz;
 						when "000110" =>instruction <= i_bz;
@@ -193,6 +185,55 @@ process(clk_1, reset, stop_run)
 					case instruction is
 						when i_nop =>
 							global_state<=end_execute;
+						
+						when i_rgb=>
+							case execute_instruction is
+								when t0 =>
+									execute_instruction<=t1;
+									sel_rgb<=IR(7 downto 0);
+									sel_rgb_temp<="000";
+								when t1 =>
+									execute_instruction<=t2;--sincronizar data_bus_rgb
+								when t2 =>
+									case sel_rgb_temp is
+										when "000"=>
+											f1<=data_bus_rgb;
+											execute_instruction<=t1;
+										when "001"=>
+											f2<=data_bus_rgb;
+											execute_instruction<=t1;
+										when "010"=>
+											f3<=data_bus_rgb;
+											execute_instruction<=t1;
+										when "011"=>
+											f4<=data_bus_rgb;
+											execute_instruction<=t1;
+										when "100"=>
+											f5<=data_bus_rgb;
+											execute_instruction<=t1;
+										when "101"=>
+											f6<=data_bus_rgb;
+											execute_instruction<=t1;
+										when "110"=>
+											f7<=data_bus_rgb;
+											execute_instruction<=t1;
+										when "111"=>
+											f8<=data_bus_rgb;
+											execute_instruction<=t3;
+										when others=>
+											execute_instruction<=t3;
+									end case;
+									sel_rgb<=sel_rgb+1;
+									sel_rgb_temp<=sel_rgb_temp+1;
+								when t3 =>
+									sel_rgb_temp<="000";
+									execute_instruction<=t0;
+									global_state<=end_execute;
+								when others =>
+									sel_rgb_temp<="000";
+									execute_instruction<=t0;
+									global_state<=end_execute;
+							end case;
 							
 						when i_load =>
 							case execute_instruction is 
@@ -406,46 +447,16 @@ process(clk_1, reset, stop_run)
 									global_state <= end_execute;
 							end case;
 						
-						when i_dply=>
-							case execute_instruction is
-								when t0 =>
-									execute_instruction<=t1;
-								when t1 =>
-									rpg_sel1<=IR(17 downto 16);
-									execute_instruction<=t2;
-								when t2 =>--sincronizar  data_out;
-									execute_instruction<=t3;
-								when t3 =>
-									if(rpg_out1(15) = '1') then
-										A<=rpg_out1(15 downto 0);
-										control<="1100";
-										signo<='1';
-									else
-										signo<='0';
-										Rdisplay<=rpg_out1(13 downto 0);
-									end if;
-									execute_instruction<=t4;
-								when t4 =>
-									if(rpg_out1(15) = '1') then 
-										Rdisplay<=ACC(13 downto 0);
-									end if;
-									execute_instruction<=t0;
-									global_state<=end_execute;
-								when others =>
-									execute_instruction<=t0;
-									global_state<=end_execute;
-							end case;
-						
 						when i_adec =>
 							case execute_instruction is
 								when t0 =>
 									execute_instruction<=t1;
 								when t1 =>
+									control<="0011";
 									rpg_sel1<=IR(17 downto 16);
 									execute_instruction<=t2;
 								when t2 =>
-									control<=IR(3 downto 0);
-									A<="0000"&rpg_out1(11 downto 0);
+									A<=rpg_out1(15 downto 0);
 									execute_instruction<=t3;
 								when t3 =>
 									rpg_write<='1';
@@ -599,76 +610,22 @@ process(clk_1, reset, stop_run)
 			end case;
 		end if;
 	end process;
-
-	Q<=Rdisplay;	
-process(clk_0, reset)
-	begin
-		if (reset = '1') then
-			temp_control <= "0000";
-		elsif (rising_edge(clk_0)) then
-			case temp_control is
-				when "0000"=>
-					temp_control <= "0001";
-				when "0001"=> 
-					temp_control <= "0010";
-					display <= mi;
-				when "0010"=> 
-					temp_control <= "0100";
-					display <= ce;
-				when "0100"=> 
-					temp_control <= "1000";
-					display <= de;
-				when "1000"=> 
-					temp_control <= "0001";
-					display <= un;
-				when others=>
-					temp_control <= "0000";
-			end case;
-			sel <= temp_control;
-		end if;
-end process;
+	
 
 
 process(clk, reset)
 	variable count: integer range 0 to 2500;
-	variable count1: integer range 0 to 25;
 	begin
 		if (reset = '1') then
 			clk_0<= '0';
-			clk_1<= '0';
 		elsif (rising_edge(clk)) then
-			if (count < 1000) then
+			if (count < 500) then
 				count := count + 1;
 			else
 				count := 0;
 				clk_0 <= not clk_0;
 			end if;
-			
-			if (count1 < 1) then
-				count1 := count1 + 1;
-			else
-				count1 := 0;
-				clk_1 <= not clk_1;
-			end if;
 		end if;
-end process;
-
-
-
-process(SW)
-    begin
-        case SW is
-            when "00" =>
-                PC_mux <= x"00";
-            when "01" =>
-                PC_mux <= x"60"; 
-            when "10" =>
-                PC_mux <= x"6C"; 
-            when "11" =>
-                PC_mux <= x"78"; 
-            when others =>
-                PC_mux <= x"00"; 
-        end case;
 end process;
 
 end behavior;
