@@ -53,17 +53,25 @@ architecture a_ROM of ROM is
 	--TIPO J |OP CODE(6)| DIRECCION DE MEMORIA (18)|
 	type ROM_Array is array (0 to 255) of std_logic_vector(23 downto 0);
 	constant content: ROM_Array := (
-		0 => OP_RGB&"0000000000"&x"98",
+		0 => OP_RGB&"0000000000"&x"58",
 		1 => OP_LOADI&RA&x"0001",
 		2 => OP_LOADI&RB&x"0004",
 		3 => OP_JMP&"00"&x"00F8",
-		4 => OP_RGB&"0000000000"&x"00",
+		4 => OP_RGB&"0000000000"&x"60",
 		5 => OP_LOADI&RA&x"0001",
-		6 => OP_LOADI&RB&x"0000",
+		6 => OP_LOADI&RB&x"0008",
 		7 => OP_JMP&"00"&x"00F8",
+		8 => OP_RGB&"0000000000"&x"68",
+		9 => OP_LOADI&RA&x"0001",
+		10 => OP_LOADI&RB&x"000C",
+		11 => OP_JMP&"00"&x"00F8",
+		12 => OP_RGB&"0000000000"&x"70",
+		13 => OP_LOADI&RA&x"0001",
+		14 => OP_LOADI&RB&x"0000",
+		15 => OP_JMP&"00"&x"00F8",
 		
 		248=>OP_ADEC&RA&x"0000",--DEC RA
-		249 =>OP_LOADI&RC&x"000F",--LOADI FFFF, RC
+		249 =>OP_LOADI&RC&x"0008",--LOADI FFFF, RC
 		250 =>OP_ADEC&RC&x"0000",--DEC RC
 		251 =>OP_NOP&"000000000000000000",--NOP
 		252=>OP_BNZ&"10"&x"00FE",--BNZ -2
